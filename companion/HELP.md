@@ -1,3 +1,3 @@
-## Your module
+## Auri TX2N
 
-Write some help for your users here!
+Connection is via UDP on Port 54666
