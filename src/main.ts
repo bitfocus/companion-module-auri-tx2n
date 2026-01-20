@@ -28,12 +28,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async init(config: ModuleConfig): Promise<void> {
 		this.#config = config
 
-		this.updateStatus(InstanceStatus.Ok)
-
-		this.updateActions() // export actions
-		this.updateFeedbacks() // export feedbacks
-		this.updatePresets() // export Presets
-		this.updateVariableDefinitions() // export variable definitions
+		this.configUpdated(config).catch(() => {})
 	}
 	// When module gets deleted
 	async destroy(): Promise<void> {
@@ -49,6 +44,16 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.#controller.abort()
 		this.#statusManager.updateStatus(InstanceStatus.Connecting)
 		this.#controller = new AbortController()
+		this.initUDP(config.host, config.port)
+		try {
+			this.updateActions() // export actions
+			this.updateFeedbacks() // export feedbacks
+			this.updatePresets() // export Presets
+			this.updateVariableDefinitions() // export variable definitions
+		} catch (err) {
+			if (err instanceof Error) this.log('warn', err.message)
+			else this.log('warn', String(err))
+		}
 	}
 
 	public debug(msg: string | object): void {
@@ -70,12 +75,14 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.#socket = new UDPHelper(host, port)
 		this.#socket.addListener('data', (msg, rinfo): void => {
 			if (rinfo.address !== host) {
-				this.log('warn', `Message recieved from unknown host: ${rinfo.address}: ${msg}`)
+				this.log('warn', `Message recieved from unknown host: ${rinfo.address}:${rinfo.port}\n${msg}`)
 				return
 			}
+			this.debug(`Message recieved from host: ${rinfo.address}:${rinfo.port}\n${msg}`)
 		})
 		this.#socket.addListener('error', (err): void => {
 			this.log('error', err.message)
+			this.debug(err)
 		})
 		this.#socket.addListener('status_change', (status, message): void => {
 			this.#statusManager.updateStatus(status, message)
@@ -94,19 +101,19 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	}
 
 	updateActions(): void {
-		UpdateActions(this)
+		UpdateActions(this, this.#config.model)
 	}
 
 	updateFeedbacks(): void {
-		UpdateFeedbacks(this)
+		UpdateFeedbacks(this, this.#config.model)
 	}
 
 	updatePresets(): void {
-		UpdatePresets(this)
+		UpdatePresets(this, this.#config.model)
 	}
 
 	updateVariableDefinitions(): void {
-		UpdateVariableDefinitions(this)
+		UpdateVariableDefinitions(this, this.#config.model)
 	}
 }
 

@@ -1,9 +1,10 @@
 import { Regex, type SomeCompanionConfigField } from '@companion-module/base'
 
+export type Model = 'TX2N' | 'D4'
 export interface ModuleConfig {
 	host: string
 	port: number
-	model: 'TX2N' | 'D4'
+	model: Model
 	interval: number
 	verbose: boolean
 }

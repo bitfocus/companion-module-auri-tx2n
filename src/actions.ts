@@ -1,22 +1,16 @@
+import { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
+import type { Model } from './config.js'
 
-export function UpdateActions(self: ModuleInstance): void {
-	self.setActionDefinitions({
-		sample_action: {
-			name: 'My First Action',
-			options: [
-				{
-					id: 'num',
-					type: 'number',
-					label: 'Test',
-					default: 5,
-					min: 0,
-					max: 100,
-				},
-			],
-			callback: async (event) => {
-				console.log('Hello world!', event.options.num)
-			},
-		},
-	})
+export function UpdateActions(self: ModuleInstance, model: Model): void {
+	const actions: CompanionActionDefinitions = {}
+	switch (model) {
+		case 'D4':
+			break
+		case 'TX2N':
+			break
+		default:
+			throw new Error(`Invalid model, no action definitions: ${model}`)
+	}
+	self.setActionDefinitions(actions)
 }

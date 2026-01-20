@@ -1,9 +1,16 @@
+import { CompanionVariableDefinition } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
+import type { Model } from './config.js'
 
-export function UpdateVariableDefinitions(self: ModuleInstance): void {
-	self.setVariableDefinitions([
-		{ variableId: 'variable1', name: 'My first variable' },
-		{ variableId: 'variable2', name: 'My second variable' },
-		{ variableId: 'variable3', name: 'Another variable' },
-	])
+export function UpdateVariableDefinitions(self: ModuleInstance, model: Model): void {
+	const variables: CompanionVariableDefinition[] = []
+	switch (model) {
+		case 'D4':
+			break
+		case 'TX2N':
+			break
+		default:
+			throw new Error(`Invalid model, no variable definitions: ${model}`)
+	}
+	self.setVariableDefinitions(variables)
 }

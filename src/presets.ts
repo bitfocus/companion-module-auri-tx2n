@@ -1,21 +1,16 @@
 import type { ModuleInstance } from './main.js'
-import { CompanionPresetDefinitions, combineRgb } from '@companion-module/base'
+import { CompanionPresetDefinitions } from '@companion-module/base'
+import type { Model } from './config.js'
 
-export function UpdatePresets(self: ModuleInstance): void {
+export function UpdatePresets(self: ModuleInstance, model: Model): void {
 	const presets: CompanionPresetDefinitions = {}
-	presets['mylabel'] = {
-		type: 'button',
-		category: 'Group One',
-		name: 'Name',
-		style: {
-			text: 'My first Preset button',
-			size: 'auto',
-			color: combineRgb(255, 255, 255),
-			bgcolor: combineRgb(0, 0, 0),
-			show_topbar: false,
-		},
-		steps: [],
-		feedbacks: [],
+	switch (model) {
+		case 'D4':
+			break
+		case 'TX2N':
+			break
+		default:
+			throw new Error(`Invalid model, no preset definitions: ${model}`)
 	}
 
 	self.setPresetDefinitions(presets)
