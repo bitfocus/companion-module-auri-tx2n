@@ -40,7 +40,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const name = action.options.name?.toString() ?? ''
 					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position ${position}`)
 					const msg = API.D4.Set.SetDockEncryptionBroadcastName(position, name)
-					await self.send(msg, 1)
+					const bcName = API.DockEncryptionBroadcastName(await self.send(msg, 1))
+					self.device.dock[bcName.position].broadcastName = bcName.name
+					self.checkFeedbacks('dockBroadcastName')
 				},
 			}
 			actions.dockPrivKey = {
@@ -68,7 +70,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const privKey = action.options.privKey?.toString() ?? ''
 					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position ${position}`)
 					const msg = API.D4.Set.SetDockEncryptionPrivacyKey(position, privKey)
-					await self.send(msg, 1)
+					const posPrivKey = API.DockEncryptionPrivacyKey(await self.send(msg, 1))
+					self.device.dock[posPrivKey.position].privacyKey = posPrivKey.key
+					self.checkFeedbacks('dockPrivKey')
 				},
 			}
 			break
@@ -95,7 +99,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					const msg = API.TX2N.Set.RadioEncryption(channel, action.options.enable ? 'ON' : 'OFF')
-					await self.send(msg, 1)
+					const rxEncrypt = API.RadioEncryption(await self.send(msg, 1))
+					self.device.radios[rxEncrypt.ch].encryption = rxEncrypt.encryption
+					self.checkFeedbacks('radioEncryption')
 				},
 			}
 			actions.RadioEncryptionBroadcastName = {
@@ -122,7 +128,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					const msg = API.TX2N.Set.RadioEncryptionBroadcastName(channel, action.options.name?.toString() ?? '')
-					await self.send(msg, 1)
+					const rxBcName = API.RadioEncryptionBroadcastName(await self.send(msg, 1))
+					self.device.radios[rxBcName.chan].broadcastName = rxBcName.name
+					self.checkFeedbacks('broadcastName')
 				},
 			}
 			actions.RadioEncryptionPrivacyKey = {
@@ -149,7 +157,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					const msg = API.TX2N.Set.RadioEncryptionPrivacyKey(channel, action.options.privKey?.toString() ?? '')
-					await self.send(msg, 1)
+					const privKey = API.RadioEncryptionPrivacyKey(await self.send(msg, 1))
+					self.device.radios[privKey.chan].privacyKey = privKey.key
+					self.checkFeedbacks('privKey')
 				},
 			}
 			actions.transmitterOutput = {
@@ -174,7 +184,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					const msg = API.TX2N.Set.TransmitterOutput(channel, action.options.enable ? 'ON' : 'OFF')
-					await self.send(msg, 1)
+					const txOut = API.RadioTransmitterOutput(await self.send(msg, 1))
+					self.device.radios[txOut.chan].transmitterOutput = txOut.output
+					self.checkFeedbacks('transmitterOutput')
 				},
 			}
 			actions.audioStreamInputMute = {
@@ -209,7 +221,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					if (!API.isOneOrTwo(input)) throw new Error(`Invalid input ${input}`)
 					const msg = API.TX2N.Set.AudioStreamInputMute(channel, input, action.options.mute ? 'ON' : 'OFF')
-					await self.send(msg, 1)
+					const streamMute = API.AudioStreamInputMute(await self.send(msg, 1))
+					self.device.audioStreams[streamMute.stream].inputs[streamMute.input].mute = streamMute.mute
+					self.checkFeedbacks('inputMute')
 				},
 			}
 			actions.audioStreamProgramInfo = {
@@ -236,7 +250,9 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
 					const msg = API.TX2N.Set.AudioStreamProgramInfo(channel, action.options.pgmInfo?.toString() ?? '')
-					await self.send(msg, 1)
+					const pgmInfo = API.AudioStreamProgramInfo(await self.send(msg, 1))
+					self.device.audioStreams[pgmInfo.stream].programInfo = pgmInfo.info
+					self.checkFeedbacks('programInfo')
 				},
 			}
 			break
