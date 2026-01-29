@@ -23,19 +23,45 @@ declare module '@companion-module/base' {
 
 const LISTEN_TIMEOUT = 1000
 
+const METER_POLL_INTERVAL = 100
+
 export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	#config!: ModuleConfig // Setup in init()
-	#queue = new PQueue({ concurrency: 1, interval: 50, intervalCap: 1 })
+	#queue = new PQueue({ concurrency: 1 })
 	#controller = new AbortController()
 	#statusManager = new StatusManager(this, { status: InstanceStatus.Connecting, message: 'Initialising' }, 2000)
 	#socket!: UDPHelper
 	#pollTimer: NodeJS.Timeout | undefined = undefined
+	#meterTimer: NodeJS.Timeout | undefined = undefined
 	device: API.DeviceState = {
 		system: {
 			status: 0,
 		},
 		radios: {},
-		audioStreams: {},
+		audioStreams: {
+			1: {
+				programInfo: '',
+				inputs: {
+					1: { mute: false },
+					2: { mute: false },
+				},
+				outputs: {
+					L: -200,
+					R: -200,
+				},
+			},
+			2: {
+				programInfo: '',
+				inputs: {
+					1: { mute: false },
+					2: { mute: false },
+				},
+				outputs: {
+					L: -200,
+					R: -200,
+				},
+			},
+		},
 		dock: {},
 	}
 
@@ -51,13 +77,21 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	// When module gets deleted
 	async destroy(): Promise<void> {
 		this.log('debug', `destroy ${this.id}: ${this.label}`)
+		if (this.#pollTimer) clearTimeout(this.#pollTimer)
+		if (this.#meterTimer) clearTimeout(this.#meterTimer)
 		this.#controller.abort()
 		this.#statusManager.destroy()
 		this.#queue.clear()
+		if (this.#socket) {
+			this.#socket.removeAllListeners()
+			this.#socket.destroy()
+		}
 	}
 
 	async configUpdated(config: ModuleConfig): Promise<void> {
 		this.#config = config
+		if (this.#pollTimer) clearTimeout(this.#pollTimer)
+		if (this.#meterTimer) clearTimeout(this.#meterTimer)
 		this.#queue.clear()
 		this.#controller.abort()
 		this.#statusManager.updateStatus(InstanceStatus.Connecting)
@@ -145,6 +179,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 	async startPolling(): Promise<void> {
 		if (this.#pollTimer) clearTimeout(this.#pollTimer)
+		if (this.#controller.signal.aborted) return
 		const device = this.device
 		try {
 			if (this.#config.model == 'TX2N') {
@@ -164,10 +199,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					mute1_2,
 					mute2_1,
 					mute2_2,
-					level1_L,
-					level1_R,
-					level2_L,
-					level2_R,
 				] = await Promise.all([
 					this.send(API.TX2N.Get.SystemStatus()).then(API.SystemStatus),
 					this.send(API.TX2N.Get.RadioEncryption(1)).then(API.RadioEncryption),
@@ -184,10 +215,6 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					this.send(API.TX2N.Get.AudioStreamInputMute(1, 2)).then(API.AudioStreamInputMute),
 					this.send(API.TX2N.Get.AudioStreamInputMute(2, 1)).then(API.AudioStreamInputMute),
 					this.send(API.TX2N.Get.AudioStreamInputMute(2, 2)).then(API.AudioStreamInputMute),
-					this.send(API.TX2N.Get.AudioStreamOutputLevelLeft(1)).then(API.AudioStreamOutputLevel),
-					this.send(API.TX2N.Get.AudioStreamOutputLevelRight(1)).then(API.AudioStreamOutputLevel),
-					this.send(API.TX2N.Get.AudioStreamOutputLevelLeft(2)).then(API.AudioStreamOutputLevel),
-					this.send(API.TX2N.Get.AudioStreamOutputLevelRight(2)).then(API.AudioStreamOutputLevel),
 				])
 				device.system.status = systemStatus
 
@@ -207,29 +234,21 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 				}
 
 				// Populate device object - Audio Streams
-				device.audioStreams[1] = {
-					programInfo: streamInfo1.info,
-					inputs: {
-						1: { mute: mute1_1.mute },
-						2: { mute: mute1_2.mute },
-					},
-					outputs: {
-						L: level1_L.level,
-						R: level1_R.level,
-					},
-				}
-
-				device.audioStreams[2] = {
-					programInfo: streamInfo2.info,
-					inputs: {
-						1: { mute: mute2_1.mute },
-						2: { mute: mute2_2.mute },
-					},
-					outputs: {
-						L: level2_L.level,
-						R: level2_R.level,
-					},
-				}
+				device.audioStreams[1].programInfo = streamInfo1.info
+				device.audioStreams[1].inputs[1].mute = mute1_1.mute
+				device.audioStreams[1].inputs[2].mute = mute1_2.mute
+				device.audioStreams[2].programInfo = streamInfo2.info
+				device.audioStreams[2].inputs[1].mute = mute2_1.mute
+				device.audioStreams[2].inputs[2].mute = mute2_2.mute
+				this.checkFeedbacks(
+					'systemStatus',
+					'radioEncryption',
+					'transmitterOutput',
+					'broadcastName',
+					'privKey',
+					'programInfo',
+					'inputMute',
+				)
 			} else {
 				const allQueries: Promise<any>[] = [this.send(API.TX2N.Get.SystemStatus()).then(API.SystemStatus)]
 
@@ -246,7 +265,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 				const results = await Promise.all(allQueries)
 
 				// Extract system status
-				const systemStatus = results[0]
+				const systemStatus = results[0] as number
 				device.system.status = systemStatus
 
 				// Extract dock results (indices 1 onwards)
@@ -254,15 +273,17 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 				// Populate device.dock
 				device.dock = {}
-				for (let i = 1; i <= 32; i++) {
-					const bcNameIndex = (i - 1) * 2
-					const privKeyIndex = (i - 1) * 2 + 1
+				for (let i = 0; i < dockResults.length; i += 2) {
+					const bcName = dockResults[i] as { position: number; name: string }
+					const privKey = dockResults[i + 1] as { position: number; key: string }
 
-					device.dock[i] = {
-						broadcastName: dockResults[bcNameIndex].name,
-						privacyKey: dockResults[privKeyIndex].key,
+					// Use the position from the parsed result instead of calculating it
+					device.dock[bcName.position] = {
+						broadcastName: bcName.name,
+						privacyKey: privKey.key,
 					}
 				}
+				this.checkFeedbacks('systemStatus', 'dockBroadcastName', 'dockPrivKey')
 			}
 			this.#statusManager.updateStatus(InstanceStatus.Ok)
 		} catch (err) {
@@ -271,10 +292,41 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			else if (err instanceof Error) this.log('error', `Error during polling ${err.message}`)
 			else this.log('error', `Error during polling: ${String(err)}`)
 		}
-		this.checkFeedbacks()
+
 		this.#pollTimer = setTimeout(() => {
 			this.startPolling().catch(() => {})
 		}, this.#config.interval)
+	}
+
+	async startMetering(): Promise<void> {
+		if (this.#meterTimer) clearTimeout(this.#meterTimer)
+		if (this.#controller.signal.aborted || this.#config.model !== 'TX2N') return
+		const device = this.device
+		try {
+			const outputLevelQueries: Promise<{ stream: number; output: 'L' | 'R'; level: number }>[] = []
+			for (let stream = 1; stream <= 2; stream++) {
+				outputLevelQueries.push(
+					this.send(API.TX2N.Get.AudioStreamOutputLevelLeft(stream as API.OneOrTwo)).then(API.AudioStreamOutputLevel),
+					this.send(API.TX2N.Get.AudioStreamOutputLevelRight(stream as API.OneOrTwo)).then(API.AudioStreamOutputLevel),
+				)
+			}
+
+			const outputLevels = await Promise.all(outputLevelQueries)
+			outputLevels.forEach((response) => {
+				if (device.audioStreams[response.stream]) {
+					device.audioStreams[response.stream].outputs[response.output] = response.level
+				}
+			})
+		} catch (err) {
+			this.#statusManager.updateStatus(InstanceStatus.UnknownError)
+			if (typeof err == 'string') this.log('error', `Error during meter polling ${err}`)
+			else if (err instanceof Error) this.log('error', `Error during meter polling ${err.message}`)
+			else this.log('error', `Error during meter polling: ${String(err)}`)
+		}
+		this.checkFeedbacks('outputLevel')
+		this.#meterTimer = setTimeout(() => {
+			this.startMetering().catch(() => {})
+		}, METER_POLL_INTERVAL)
 	}
 
 	// Return config fields for web config

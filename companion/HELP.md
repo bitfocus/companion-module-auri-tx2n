@@ -4,6 +4,8 @@ Connection is via UDP on Port 54666
 
 Minimum supported firmware version 1.5
 
+When used, output level polling occurs on 100ms intervals
+
 ### Actions
 
 - Identify

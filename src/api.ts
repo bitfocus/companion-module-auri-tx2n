@@ -1,4 +1,4 @@
-type OneOrTwo = 1 | 2
+export type OneOrTwo = 1 | 2
 
 export function isOneOrTwo(value: number): value is OneOrTwo {
 	return Number.isInteger(value) && value >= 1 && value <= 2

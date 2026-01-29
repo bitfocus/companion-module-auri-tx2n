@@ -1,6 +1,7 @@
 import { combineRgb, CompanionFeedbackDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
 import type { Model } from './config.js'
+import * as API from './api.js'
 
 const blackOnRead = {
 	bgcolor: combineRgb(255, 0, 0),
@@ -34,7 +35,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const position = Number.parseInt(feedback.options?.position?.toString() ?? '1')
-					if (Number.isNaN(position)) throw new Error(`Invalid position - ${feedback.id}`)
+					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position - ${feedback.id}`)
 					return self.device.dock[position]?.broadcastName ?? ''
 				},
 			}
@@ -53,7 +54,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const position = Number.parseInt(feedback.options?.position?.toString() ?? '1')
-					if (Number.isNaN(position)) throw new Error(`Invalid position - ${feedback.id}`)
+					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position - ${feedback.id}`)
 					return self.device.dock[position]?.privacyKey ?? ''
 				},
 			}
@@ -75,7 +76,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
+					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.encryption ?? false
 				},
 			}
@@ -95,7 +96,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
+					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.transmitterOutput ?? false
 				},
 			}
@@ -114,7 +115,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
+					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.broadcastName ?? ''
 				},
 			}
@@ -133,7 +134,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				],
 				callback: (feedback) => {
 					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
+					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.privacyKey ?? ''
 				},
 			}
@@ -143,7 +144,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				options: [
 					{
 						type: 'textinput',
-						id: 'channel',
+						id: 'stream',
 						label: 'Stream',
 						default: '1',
 						useVariables: { local: true },
@@ -151,9 +152,9 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 					},
 				],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid stream - ${feedback.id}`)
-					return self.device.audioStreams[channel]?.programInfo ?? ''
+					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
+					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
+					return self.device.audioStreams[stream]?.programInfo ?? ''
 				},
 			}
 			feedbacks.inputMute = {
@@ -163,7 +164,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				options: [
 					{
 						type: 'textinput',
-						id: 'channel',
+						id: 'stream',
 						label: 'Stream',
 						default: '1',
 						useVariables: { local: true },
@@ -179,11 +180,11 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 					},
 				],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
+					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
 					const input = Number.parseInt(feedback.options?.input?.toString() ?? '1')
-					if (Number.isNaN(channel)) throw new Error(`Invalid stream - ${feedback.id}`)
-					if (Number.isNaN(input)) throw new Error(`Invalid input - ${feedback.id}`)
-					return self.device.audioStreams[channel]?.inputs[input].mute ?? false
+					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
+					if (!API.isOneOrTwo(input)) throw new Error(`Invalid input - ${feedback.id}`)
+					return self.device.audioStreams[stream]?.inputs?.[input]?.mute ?? false
 				},
 			}
 			feedbacks.outputLevel = {
@@ -212,8 +213,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 				callback: (feedback) => {
 					const channel = feedback.options?.channel?.toString() ?? 'L'
 					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
-					if (Number.isNaN(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
-					if (Number.isNaN(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
+					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
 					const output = self.device.audioStreams[stream]?.outputs
 					if (output) {
 						if (channel === 'L' || channel === 'R') {
@@ -221,6 +221,9 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 						}
 					}
 					return -100
+				},
+				subscribe: () => {
+					self.startMetering().catch(() => {})
 				},
 			}
 			break
