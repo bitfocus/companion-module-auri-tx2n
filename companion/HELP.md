@@ -40,6 +40,8 @@ When used, output level polling occurs on 100ms intervals
 
 - Audio Stream - Output Level
 
+- Audio Stream - Output Level Meter
+
 - Audio Stream - Program Info
 
 - Radio - Broadcast Name

@@ -2,6 +2,7 @@ import { CompanionActionDefinitions } from '@companion-module/base'
 import type { ModuleInstance } from './main.js'
 import type { Model } from './config.js'
 import * as API from './api.js'
+import * as Opts from './options.js'
 
 // Helper functions
 function ensureRadioExists(device: API.DeviceState, channel: number): void {
@@ -60,24 +61,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 		case 'D4':
 			actions.dockBroadcastName = {
 				name: 'Position - Broadcast Name',
-				options: [
-					{
-						type: 'textinput',
-						id: 'position',
-						label: 'Position',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 32',
-					},
-					{
-						type: 'textinput',
-						id: 'name',
-						label: 'Name',
-						default: '',
-						useVariables: { local: true },
-						description: '32 Characters max',
-					},
-				],
+				options: [Opts.dockPositionOption, Opts.nameOption],
 				callback: async (action) => {
 					const position = Number.parseInt(action.options.position?.toString() ?? '1')
 					const name = action.options.name?.toString() ?? ''
@@ -94,24 +78,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.dockPrivKey = {
 				name: 'Position - Privacy Key',
-				options: [
-					{
-						type: 'textinput',
-						id: 'position',
-						label: 'Position',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 32',
-					},
-					{
-						type: 'textinput',
-						id: 'privKey',
-						label: 'Privacy Key',
-						default: '',
-						useVariables: { local: true },
-						description: '32 Characters max',
-					},
-				],
+				options: [Opts.dockPositionOption, Opts.privKeyOption],
 				callback: async (action) => {
 					const position = Number.parseInt(action.options.position?.toString() ?? '1')
 					const privKey = action.options.privKey?.toString() ?? ''
@@ -130,22 +97,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 		case 'TX2N':
 			actions.radioEncryption = {
 				name: 'Radio - Encryption',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'checkbox',
-						id: 'enable',
-						label: 'Enable',
-						default: true,
-					},
-				],
+				options: [Opts.rxChanOption, Opts.enableOption],
 				callback: async (action) => {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
@@ -161,24 +113,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.radioEncryptionBroadcastName = {
 				name: 'Radio - Broadcast Name',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'textinput',
-						id: 'name',
-						label: 'Name',
-						default: '',
-						useVariables: { local: true },
-						description: '32 Characters max',
-					},
-				],
+				options: [Opts.rxChanOption, Opts.nameOption],
 				callback: async (action) => {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
@@ -194,24 +129,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.radioEncryptionPrivacyKey = {
 				name: 'Radio - Privacy Key',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'textinput',
-						id: 'privKey',
-						label: 'Privacy Key',
-						default: '',
-						useVariables: { local: true },
-						description: '16 Characters max',
-					},
-				],
+				options: [Opts.rxChanOption, Opts.privKeyOption],
 				callback: async (action) => {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
@@ -227,22 +145,7 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.transmitterOutput = {
 				name: 'Radio - Transmitter Output',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'checkbox',
-						id: 'enable',
-						label: 'Enable',
-						default: true,
-					},
-				],
+				options: [Opts.rxChanOption, Opts.enableOption],
 				callback: async (action) => {
 					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
@@ -258,37 +161,14 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.audioStreamInputMute = {
 				name: 'Audio Stream - Input Mute',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'textinput',
-						id: 'input',
-						label: 'Input',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'checkbox',
-						id: 'mute',
-						label: 'Mute',
-						default: true,
-					},
-				],
+				options: [Opts.streamOption, Opts.inputChanOption, Opts.muteOption],
 				callback: async (action) => {
-					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
+					const stream = Number.parseInt(action.options.stream?.toString() ?? '1')
 					const input = Number.parseInt(action.options.input?.toString() ?? '1')
-					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
+					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream ${stream}`)
 					if (!API.isOneOrTwo(input)) throw new Error(`Invalid input ${input}`)
 
-					const msg = API.TX2N.Set.AudioStreamInputMute(channel, input, action.options.mute ? 'ON' : 'OFF')
+					const msg = API.TX2N.Set.AudioStreamInputMute(stream, input, action.options.mute ? 'ON' : 'OFF')
 					const streamMute = API.AudioStreamInputMute(await self.send(msg, 1))
 
 					ensureAudioStreamInputExists(self.device, streamMute.stream, streamMute.input)
@@ -299,29 +179,12 @@ export function UpdateActions(self: ModuleInstance, model: Model): void {
 
 			actions.audioStreamProgramInfo = {
 				name: 'Audio Stream - Program Info',
-				options: [
-					{
-						type: 'textinput',
-						id: 'channel',
-						label: 'Channel',
-						default: '1',
-						useVariables: { local: true },
-						description: '1 to 2',
-					},
-					{
-						type: 'textinput',
-						id: 'pgmInfo',
-						label: 'Program Info',
-						default: '1',
-						useVariables: { local: true },
-						description: '32 Characters max',
-					},
-				],
+				options: [Opts.streamOption, Opts.pgmInfoOption],
 				callback: async (action) => {
-					const channel = Number.parseInt(action.options.channel?.toString() ?? '1')
-					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel ${channel}`)
+					const stream = Number.parseInt(action.options.stream?.toString() ?? '1')
+					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream ${stream}`)
 
-					const msg = API.TX2N.Set.AudioStreamProgramInfo(channel, action.options.pgmInfo?.toString() ?? '')
+					const msg = API.TX2N.Set.AudioStreamProgramInfo(stream, action.options.pgmInfo?.toString() ?? '')
 					const pgmInfo = API.AudioStreamProgramInfo(await self.send(msg, 1))
 
 					ensureAudioStreamExists(self.device, pgmInfo.stream)
