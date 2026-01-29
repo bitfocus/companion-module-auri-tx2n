@@ -267,7 +267,7 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 					self.startMetering().catch(() => {})
 				},
 			}
-			feedbacks.levelMeterDspOutput = createLevelMeterFeedback(self, 'Audio Stream - Output Level Meter')
+			feedbacks.levelMeterAudioStreamOutput = createLevelMeterFeedback(self, 'Audio Stream - Output Level Meter')
 			break
 		default:
 			throw new Error(`Invalid model, no feedback definitions: ${model}`)

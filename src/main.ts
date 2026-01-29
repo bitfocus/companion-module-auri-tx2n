@@ -317,13 +317,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					device.audioStreams[response.stream].outputs[response.output] = response.level
 				}
 			})
+			this.checkFeedbacks('outputLevel', 'levelMeterAudioStreamOutput')
 		} catch (err) {
 			this.#statusManager.updateStatus(InstanceStatus.UnknownError)
 			if (typeof err == 'string') this.log('error', `Error during meter polling ${err}`)
 			else if (err instanceof Error) this.log('error', `Error during meter polling ${err.message}`)
 			else this.log('error', `Error during meter polling: ${String(err)}`)
 		}
-		this.checkFeedbacks('outputLevel')
 		this.#meterTimer = setTimeout(() => {
 			this.startMetering().catch(() => {})
 		}, METER_POLL_INTERVAL)
