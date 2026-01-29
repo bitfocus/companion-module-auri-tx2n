@@ -148,32 +148,49 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 
 	async send(data: string, priority = 0, timeout = LISTEN_TIMEOUT): Promise<string> {
 		return this.#queue.add(
-			async () => {
+			async ({ signal }) => {
 				return new Promise<string>((resolve, reject) => {
+					if (signal?.aborted) {
+						reject(new Error(`Message send aborted: ${data}`))
+						return
+					}
+					const abortHandler = () => {
+						clearTimeout(timeoutId)
+						this.#socket.removeListener('response', responseHandler)
+						reject(new Error(`Message send aborted: ${data}`))
+					}
+
 					const responseHandler: (msg: string) => void = (msg: string) => {
 						clearTimeout(timeoutId)
 						this.#socket.removeListener('response', responseHandler)
+						signal?.removeEventListener('abort', abortHandler)
 						resolve(msg)
 					}
 
 					const timeoutId: NodeJS.Timeout = setTimeout(() => {
 						this.#socket.removeListener('response', responseHandler)
+						signal?.removeEventListener('abort', abortHandler)
 						reject(new Error('Response timeout'))
 					}, timeout)
 
 					// Listen for the response
 					this.#socket.once('response', responseHandler)
+					signal?.addEventListener('abort', abortHandler)
 
 					// Send the data
 					this.#socket.send(data + '\r').catch((err) => {
 						clearTimeout(timeoutId)
 						this.#socket.removeListener('response', responseHandler)
-						if (err instanceof Error) reject(err)
-						reject(new Error(`Message send failure: ${data}`))
+						signal?.removeEventListener('abort', abortHandler)
+						if (err instanceof Error) {
+							reject(err)
+						} else {
+							reject(new Error(`Message send failure: ${data}`))
+						}
 					})
 				})
 			},
-			{ priority: priority },
+			{ priority: priority, signal: this.#controller.signal },
 		)
 	}
 
