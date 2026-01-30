@@ -5,8 +5,8 @@
 	"description": "Module for controlling Auri TX2N Auracast transmitters and D4/16 docking stations",
 	"version": "0.0.0",
 	"license": "MIT",
-	"repository": "git+https://github.com/phillipivan/companion-module-auri-tx2n.git",
-	"bugs": "https://github.com/phillipivan/companion-module-auri-tx2n/issues",
+	"repository": "git+https://github.com/bitfocus/companion-module-auri-tx2n.git",
+	"bugs": "https://github.com/bitfocus/companion-module-auri-tx2n/issues",
 	"maintainers": [
 		{
 			"name": "Phillip Ivan Pietruschka",
