@@ -143,6 +143,9 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		this.#socket.addListener('listening', (): void => {
 			this.#statusManager.updateStatus(InstanceStatus.Connecting, 'Listening')
 			this.startPolling().catch(() => {})
+
+			// Only start metering via feedback subscribe if required
+			//if (this.#config.model == 'TX2N') this.startMetering().catch(() => {})
 		})
 	}
 

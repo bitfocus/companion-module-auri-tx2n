@@ -100,9 +100,9 @@ export const minValOption = {
 	type: 'number',
 	label: 'Minimum Value',
 	id: 'min',
-	default: -100,
+	default: -60,
 	description: 'Value less than or equal to this will result in no metering',
-	min: -200,
+	min: -100,
 	max: -20,
 } as const satisfies CompanionInputFieldNumber
 

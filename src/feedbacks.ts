@@ -141,10 +141,12 @@ const createLevelMeterFeedback = (instance: ModuleInstance, name: string): Compa
 			opacity: 255,
 		}
 
-		instance.debug(`Feedback: ${JSON.stringify(feedback)}\n Bar Options: ${JSON.stringify(options)}`)
 		return {
 			imageBuffer: graphics.bar(options),
 		}
+	},
+	subscribe: () => {
+		instance.startMetering().catch(() => {})
 	},
 })
 
