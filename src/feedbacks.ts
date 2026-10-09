@@ -1,9 +1,68 @@
-import { combineRgb, type CompanionFeedbackDefinitions, type CompanionFeedbackDefinition } from '@companion-module/base'
-import type { ModuleInstance } from './main.js'
+import {
+	combineRgb,
+	type CompanionAdvancedFeedbackDefinition,
+	type CompanionAdvancedFeedbackResult,
+	type CompanionFeedbackDefinitions,
+} from '@companion-module/base'
+import type ModuleInstance from './main.js'
 import type { Model } from './config.js'
 import * as API from './api.js'
 import * as Opts from './options.js'
 import { graphics } from 'companion-module-utils'
+
+/**
+ * Feedback ids. The values are the ids saved against every button using the feedback, so they must never change —
+ * they predate this enum and are camelCase for that reason.
+ */
+export enum FeedbackId {
+	SystemStatus = 'systemStatus',
+	DockBroadcastName = 'dockBroadcastName',
+	DockPrivKey = 'dockPrivKey',
+	RadioEncryption = 'radioEncryption',
+	TransmitterOutput = 'transmitterOutput',
+	BroadcastName = 'broadcastName',
+	PrivKey = 'privKey',
+	ProgramInfo = 'programInfo',
+	InputMute = 'inputMute',
+	OutputLevel = 'outputLevel',
+	LevelMeterAudioStreamOutput = 'levelMeterAudioStreamOutput',
+}
+
+type LevelMeterOptions = {
+	stream: number
+	channel: Opts.LrChannel
+	position: Opts.BarPosition
+	padding: number
+	offset: number
+	width: number
+	min: number
+}
+
+export type FeedbackSchema = {
+	[FeedbackId.SystemStatus]: { type: 'value'; options: Record<string, never>; result: number }
+	[FeedbackId.DockBroadcastName]: { type: 'value'; options: { position: number }; result: string }
+	[FeedbackId.DockPrivKey]: { type: 'value'; options: { position: number }; result: string }
+	[FeedbackId.RadioEncryption]: { type: 'boolean'; options: { channel: number } }
+	[FeedbackId.TransmitterOutput]: { type: 'boolean'; options: { channel: number } }
+	[FeedbackId.BroadcastName]: { type: 'value'; options: { channel: number }; result: string }
+	[FeedbackId.PrivKey]: { type: 'value'; options: { channel: number }; result: string }
+	[FeedbackId.ProgramInfo]: { type: 'value'; options: { stream: number }; result: string }
+	[FeedbackId.InputMute]: { type: 'boolean'; options: { stream: number; input: number } }
+	[FeedbackId.OutputLevel]: { type: 'value'; options: { stream: number; channel: Opts.LrChannel }; result: number }
+	[FeedbackId.LevelMeterAudioStreamOutput]: { type: 'advanced'; options: LevelMeterOptions }
+}
+
+/**
+ * Sets every feedback the selected model doesn't offer to `undefined`, which is how Companion is told it isn't
+ * available. The definitions type requires every key, so this also narrows away the `Partial`.
+ */
+function ensureAllFeedbackKeys(
+	feedbacks: Partial<CompanionFeedbackDefinitions<FeedbackSchema>>,
+): asserts feedbacks is CompanionFeedbackDefinitions<FeedbackSchema> {
+	for (const id of Object.values(FeedbackId)) {
+		if (!(id in feedbacks)) feedbacks[id] = undefined
+	}
+}
 
 export const colors = {
 	red: combineRgb(255, 0, 0),
@@ -20,6 +79,22 @@ const blackOnRead = {
 	color: colors.black,
 }
 
+/**
+ * The level meter's colour bands, each a share of the bar's length from its quiet end. The deprecated advanced
+ * feedback and the composite element both draw from these, so the two stay alike.
+ */
+export const METER_BANDS = [
+	{ size: 50, color: colors.greenBright },
+	{ size: 25, color: colors.yellow },
+	{ size: 25, color: colors.red },
+] as const
+
+/** Alpha, 0 - 255, of the unlit part of the bar */
+export const METER_UNLIT_ALPHA = 64
+
+/** The top of the meter's scale in dB. Its floor is the `min` option */
+export const METER_MAX_DB = 0
+
 const valueToPercent = (value: number, min = 0, max = 100, invert = false): number => {
 	if (typeof value == 'string') value = Number.parseFloat(value)
 	const percent = ((value - min) / (max - min)) * 100
@@ -27,14 +102,19 @@ const valueToPercent = (value: number, min = 0, max = 100, invert = false): numb
 	return invert ? 100 - result : result
 }
 
-function intRangeLimiter(value: string, min: number, max: number): number {
-	const num = Number.parseInt(value, 10)
-	if (Number.isNaN(num)) return min
-	return Math.min(Math.max(num, min), max)
+/**
+ * API 2.x only accepts advanced feedback images base64 encoded. companion-module-utils draws 32 bit ARGB, so say so
+ * rather than leave Companion to guess.
+ */
+export function imageResult(buffer: Uint8Array): CompanionAdvancedFeedbackResult {
+	return {
+		imageBuffer: Buffer.from(buffer).toString('base64'),
+		imageBufferEncoding: { pixelFormat: 'ARGB' },
+	}
 }
 
 const calculateBarDimensions = (
-	position: string,
+	position: Opts.BarPosition,
 	padding: number,
 	offset: number,
 	width: number,
@@ -76,9 +156,14 @@ const calculateBarDimensions = (
 	return { ofsX1, ofsY1, bWidth, bLength }
 }
 
-const createLevelMeterFeedback = (instance: ModuleInstance, name: string): CompanionFeedbackDefinition => ({
+const createLevelMeterFeedback = (
+	instance: ModuleInstance,
+	name: string,
+): CompanionAdvancedFeedbackDefinition<LevelMeterOptions> => ({
 	name,
+	description: 'Deprecated: use the Output Meter presets, or the Level Meter composite element, instead',
 	type: 'advanced',
+	affectedProperties: ['imageBuffer'],
 	options: [
 		Opts.streamOption,
 		Opts.lrChanOption,
@@ -88,44 +173,42 @@ const createLevelMeterFeedback = (instance: ModuleInstance, name: string): Compa
 		Opts.meterWidthOption,
 		Opts.minValOption,
 	],
-	callback: async (feedback, _context) => {
-		if (!('image' in feedback) || feedback.image === undefined) {
-			instance.log('warn', `Feedback ${feedback.id} does not support images}`)
+	callback: (feedback) => {
+		instance.subscribeMetering(feedback.id)
+		if (!feedback.image) {
+			instance.log('warn', `Feedback ${feedback.id} does not support images`)
 			return {}
 		}
 
 		const opt = feedback.options
-		const min = Number(opt.min)
-		const max = 0
-		const streamNum = intRangeLimiter(String(opt.stream), 1, 2)
-		const channel = (opt.channel ?? 'L') as 'L' | 'R'
+		const min = opt.min
+		const max = METER_MAX_DB
+		const streamNum = opt.stream
 		if (!API.isOneOrTwo(streamNum)) throw new Error(`Invalid Stream Number: ${streamNum}`)
-		const value = instance.device.audioStreams[streamNum].outputs[channel]
+		const value = instance.device.audioStreams[streamNum].outputs[opt.channel]
 
 		if (Number.isNaN(value) || value === undefined) throw new Error('Value is a NaN/Undefined')
 		if (min >= max) {
 			throw new Error(`Invalid min/max choices for level-meter.\n${JSON.stringify(opt)}`)
 		}
 
-		const position = opt.position?.toString() ?? 'right'
-		const padding = Number(opt.padding)
-		const offset = Number(opt.offset)
-		const width = Number(opt.width ?? 6)
+		const position = opt.position
 
 		const { ofsX1, ofsY1, bWidth, bLength } = calculateBarDimensions(
 			position,
-			padding,
-			offset,
-			width,
+			opt.padding,
+			opt.offset,
+			opt.width,
 			feedback.image.width,
 			feedback.image.height,
 		)
 
-		const barColors: graphics.BarColor[] = [
-			{ size: 50, color: colors.greenBright, background: colors.greenBright, backgroundOpacity: 64 },
-			{ size: 25, color: colors.yellow, background: colors.yellow, backgroundOpacity: 64 },
-			{ size: 25, color: colors.red, background: colors.red, backgroundOpacity: 64 },
-		]
+		const barColors: graphics.BarColor[] = METER_BANDS.map((band) => ({
+			size: band.size,
+			color: band.color,
+			background: band.color,
+			backgroundOpacity: METER_UNLIT_ALPHA,
+		}))
 
 		const options: graphics.OptionsBar = {
 			width: feedback.image.width,
@@ -141,18 +224,16 @@ const createLevelMeterFeedback = (instance: ModuleInstance, name: string): Compa
 			opacity: 255,
 		}
 
-		return {
-			imageBuffer: graphics.bar(options),
-		}
+		return imageResult(graphics.bar(options))
 	},
-	subscribe: () => {
-		instance.startMetering().catch(() => {})
+	unsubscribe: (feedback) => {
+		instance.unsubscribeMetering(feedback.id)
 	},
 })
 
 export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
-	const feedbacks: CompanionFeedbackDefinitions = {}
-	feedbacks.systemStatus = {
+	const feedbacks: Partial<CompanionFeedbackDefinitions<FeedbackSchema>> = {}
+	feedbacks[FeedbackId.SystemStatus] = {
 		name: 'System Status',
 		type: 'value',
 		options: [],
@@ -162,118 +243,115 @@ export function UpdateFeedbacks(self: ModuleInstance, model: Model): void {
 	}
 	switch (model) {
 		case 'D4':
-			feedbacks.dockBroadcastName = {
+			feedbacks[FeedbackId.DockBroadcastName] = {
 				name: 'Position - Broadcast Name',
 				type: 'value',
 				options: [Opts.dockPositionOption],
 				callback: (feedback) => {
-					const position = Number.parseInt(feedback.options?.position?.toString() ?? '1')
+					const position = feedback.options.position
 					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position - ${feedback.id}`)
 					return self.device.dock[position]?.broadcastName ?? ''
 				},
 			}
-			feedbacks.dockPrivKey = {
+			feedbacks[FeedbackId.DockPrivKey] = {
 				name: 'Position - Privacy Key',
 				type: 'value',
 				options: [Opts.dockPositionOption],
 				callback: (feedback) => {
-					const position = Number.parseInt(feedback.options?.position?.toString() ?? '1')
+					const position = feedback.options.position
 					if (!API.isOneToThirtyTwo(position)) throw new Error(`Invalid position - ${feedback.id}`)
 					return self.device.dock[position]?.privacyKey ?? ''
 				},
 			}
 			break
 		case 'TX2N':
-			feedbacks.radioEncryption = {
+			feedbacks[FeedbackId.RadioEncryption] = {
 				name: 'Radio - Encryption',
 				type: 'boolean',
 				defaultStyle: blackOnRead,
 				options: [Opts.rxChanOption],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
+					const channel = feedback.options.channel
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.encryption ?? false
 				},
 			}
-			feedbacks.transmitterOutput = {
+			feedbacks[FeedbackId.TransmitterOutput] = {
 				name: 'Radio - Transmitter Output',
 				type: 'boolean',
 				defaultStyle: blackOnRead,
 				options: [Opts.rxChanOption],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
+					const channel = feedback.options.channel
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.transmitterOutput ?? false
 				},
 			}
-			feedbacks.broadcastName = {
+			feedbacks[FeedbackId.BroadcastName] = {
 				name: 'Radio - Broadcast Name',
 				type: 'value',
 				options: [Opts.rxChanOption],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
+					const channel = feedback.options.channel
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.broadcastName ?? ''
 				},
 			}
-			feedbacks.privKey = {
+			feedbacks[FeedbackId.PrivKey] = {
 				name: 'Radio - Privacy Key',
 				type: 'value',
 				options: [Opts.rxChanOption],
 				callback: (feedback) => {
-					const channel = Number.parseInt(feedback.options?.channel?.toString() ?? '1')
+					const channel = feedback.options.channel
 					if (!API.isOneOrTwo(channel)) throw new Error(`Invalid channel - ${feedback.id}`)
 					return self.device.radios[channel]?.privacyKey ?? ''
 				},
 			}
-			feedbacks.programInfo = {
+			feedbacks[FeedbackId.ProgramInfo] = {
 				name: 'Audio Stream - Program Info',
 				type: 'value',
 				options: [Opts.streamOption],
 				callback: (feedback) => {
-					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
+					const stream = feedback.options.stream
 					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
 					return self.device.audioStreams[stream]?.programInfo ?? ''
 				},
 			}
-			feedbacks.inputMute = {
+			feedbacks[FeedbackId.InputMute] = {
 				name: 'Audio Stream - Input Mute',
 				type: 'boolean',
 				defaultStyle: blackOnRead,
 				options: [Opts.streamOption, Opts.inputChanOption],
 				callback: (feedback) => {
-					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
-					const input = Number.parseInt(feedback.options?.input?.toString() ?? '1')
+					const { stream, input } = feedback.options
 					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
 					if (!API.isOneOrTwo(input)) throw new Error(`Invalid input - ${feedback.id}`)
 					return self.device.audioStreams[stream]?.inputs?.[input]?.mute ?? false
 				},
 			}
-			feedbacks.outputLevel = {
+			feedbacks[FeedbackId.OutputLevel] = {
 				name: 'Audio Stream - Output Level',
 				type: 'value',
 				options: [Opts.streamOption, Opts.lrChanOption],
 				callback: (feedback) => {
-					const channel = feedback.options?.channel?.toString() ?? 'L'
-					const stream = Number.parseInt(feedback.options?.stream?.toString() ?? '1')
+					self.subscribeMetering(feedback.id)
+					const { stream, channel } = feedback.options
 					if (!API.isOneOrTwo(stream)) throw new Error(`Invalid stream - ${feedback.id}`)
-					const output = self.device.audioStreams[stream]?.outputs
-					if (output) {
-						if (channel === 'L' || channel === 'R') {
-							return output[channel]
-						}
-					}
-					return -100
+					return self.device.audioStreams[stream]?.outputs[channel] ?? -100
 				},
-				subscribe: () => {
-					self.startMetering().catch(() => {})
+				unsubscribe: (feedback) => {
+					self.unsubscribeMetering(feedback.id)
 				},
 			}
-			feedbacks.levelMeterAudioStreamOutput = createLevelMeterFeedback(self, 'Audio Stream - Output Level Meter')
+			feedbacks[FeedbackId.LevelMeterAudioStreamOutput] = createLevelMeterFeedback(
+				self,
+				'Audio Stream - Output Level Meter',
+			)
 			break
 		default:
 			throw new Error(`Invalid model, no feedback definitions: ${model}`)
 	}
 
+	ensureAllFeedbackKeys(feedbacks)
 	self.setFeedbackDefinitions(feedbacks)
 }

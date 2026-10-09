@@ -7,3 +7,5 @@ DEBUG-*
 /.yarn
 /.vscode
 *.csv
+/coverage
+.DS_Store

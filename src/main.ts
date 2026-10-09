@@ -1,16 +1,11 @@
-import {
-	InstanceBase,
-	runEntrypoint,
-	InstanceStatus,
-	SomeCompanionConfigField,
-	UDPHelper,
-} from '@companion-module/base'
+import { InstanceBase, InstanceStatus, type SomeCompanionConfigField, UDPHelper } from '@companion-module/base'
 import { GetConfigFields, type ModuleConfig } from './config.js'
-import { UpdateVariableDefinitions } from './variables.js'
+import { UpdateVariableDefinitions, type VariablesSchema } from './variables.js'
 import { UpgradeScripts } from './upgrades.js'
-import { UpdateActions } from './actions.js'
-import { UpdateFeedbacks } from './feedbacks.js'
+import { UpdateActions, type ActionSchema } from './actions.js'
+import { FeedbackId, UpdateFeedbacks, type FeedbackSchema } from './feedbacks.js'
 import { UpdatePresets } from './presets.js'
+import { UpdateCompositeElements, type CompositeElementSchema } from './composites.js'
 import { StatusManager } from './status.js'
 import * as API from './api.js'
 import PQueue from 'p-queue'
@@ -25,7 +20,18 @@ const LISTEN_TIMEOUT = 1000
 
 const METER_POLL_INTERVAL = 100
 
-export class ModuleInstance extends InstanceBase<ModuleConfig> {
+export type ModuleTypes = {
+	config: ModuleConfig
+	secrets: undefined
+	actions: ActionSchema
+	feedbacks: FeedbackSchema
+	variables: VariablesSchema
+	compositeElements: CompositeElementSchema
+}
+
+export { UpgradeScripts }
+
+export default class ModuleInstance extends InstanceBase<ModuleTypes> {
 	#config!: ModuleConfig // Setup in init()
 	#queue = new PQueue({ concurrency: 1 })
 	#controller = new AbortController()
@@ -33,6 +39,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	#socket!: UDPHelper
 	#pollTimer: NodeJS.Timeout | undefined = undefined
 	#meterTimer: NodeJS.Timeout | undefined = undefined
+	/** Ids of the feedback instances that read output levels. Metering only runs while this is non-empty */
+	#meterSubscriptions = new Set<string>()
+	/** True from the start of a metering round until the loop stops, so a new subscriber doesn't start a second loop */
+	#metering = false
 	device: API.DeviceState = {
 		system: {
 			status: 0,
@@ -78,7 +88,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async destroy(): Promise<void> {
 		this.log('debug', `destroy ${this.id}: ${this.label}`)
 		if (this.#pollTimer) clearTimeout(this.#pollTimer)
-		if (this.#meterTimer) clearTimeout(this.#meterTimer)
+		this.#stopMetering()
 		this.#controller.abort()
 		this.#statusManager.destroy()
 		this.#queue.clear()
@@ -91,7 +101,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 	async configUpdated(config: ModuleConfig): Promise<void> {
 		this.#config = config
 		if (this.#pollTimer) clearTimeout(this.#pollTimer)
-		if (this.#meterTimer) clearTimeout(this.#meterTimer)
+		this.#stopMetering()
 		this.#queue.clear()
 		this.#controller.abort()
 		this.#statusManager.updateStatus(InstanceStatus.Connecting)
@@ -100,6 +110,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		try {
 			this.updateActions() // export actions
 			this.updateFeedbacks() // export feedbacks
+			this.updateCompositeElements() // export composite elements, before the presets that place them
 			this.updatePresets() // export Presets
 			this.updateVariableDefinitions() // export variable definitions
 		} catch (err) {
@@ -144,12 +155,20 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 			this.#statusManager.updateStatus(InstanceStatus.Connecting, 'Listening')
 			this.startPolling().catch(() => {})
 
-			// Only start metering via feedback subscribe if required
-			//if (this.#config.model == 'TX2N') this.startMetering().catch(() => {})
+			// The level feedbacks start metering from their callbacks, so run every callback now the socket is ready
+			this.checkAllFeedbacks()
 		})
 	}
 
-	async send(data: string, priority = 0, timeout = LISTEN_TIMEOUT): Promise<string> {
+	private combineSignal(signal?: AbortSignal): AbortSignal {
+		return signal ? AbortSignal.any([this.#controller.signal, signal]) : this.#controller.signal
+	}
+
+	/**
+	 * Queue a message and resolve with the device's reply
+	 * @param signal Abort signal from the action context, so a request that is no longer wanted never reaches the wire
+	 */
+	async send(data: string, priority = 0, signal?: AbortSignal, timeout = LISTEN_TIMEOUT): Promise<string> {
 		return this.#queue.add(
 			async ({ signal }) => {
 				return new Promise<string>((resolve, reject) => {
@@ -181,7 +200,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					signal?.addEventListener('abort', abortHandler)
 
 					// Send the data
-					this.#socket.send(data + '\r').catch((err) => {
+					this.#socket.sendAsync(data + '\r').catch((err) => {
 						clearTimeout(timeoutId)
 						this.#socket.removeListener('response', responseHandler)
 						signal?.removeEventListener('abort', abortHandler)
@@ -193,7 +212,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					})
 				})
 			},
-			{ priority: priority, signal: this.#controller.signal },
+			{ priority: priority, signal: this.combineSignal(signal) },
 		)
 	}
 
@@ -261,13 +280,13 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 				device.audioStreams[2].inputs[1].mute = mute2_1.mute
 				device.audioStreams[2].inputs[2].mute = mute2_2.mute
 				this.checkFeedbacks(
-					'systemStatus',
-					'radioEncryption',
-					'transmitterOutput',
-					'broadcastName',
-					'privKey',
-					'programInfo',
-					'inputMute',
+					FeedbackId.SystemStatus,
+					FeedbackId.RadioEncryption,
+					FeedbackId.TransmitterOutput,
+					FeedbackId.BroadcastName,
+					FeedbackId.PrivKey,
+					FeedbackId.ProgramInfo,
+					FeedbackId.InputMute,
 				)
 			} else {
 				const allQueries: Promise<any>[] = [this.send(API.TX2N.Get.SystemStatus()).then(API.SystemStatus)]
@@ -303,7 +322,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 						privacyKey: privKey.key,
 					}
 				}
-				this.checkFeedbacks('systemStatus', 'dockBroadcastName', 'dockPrivKey')
+				this.checkFeedbacks(FeedbackId.SystemStatus, FeedbackId.DockBroadcastName, FeedbackId.DockPrivKey)
 			}
 			this.#statusManager.updateStatus(InstanceStatus.Ok)
 		} catch (err) {
@@ -318,9 +337,33 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		}, this.#config.interval)
 	}
 
+	/**
+	 * Called from the callback of each feedback that reads output levels. API 2.x has no feedback subscribe hook, and
+	 * a feedback being evaluated is one in use, so registering here also re-registers it on every check.
+	 */
+	subscribeMetering(feedbackId: string): void {
+		this.#meterSubscriptions.add(feedbackId)
+		if (!this.#metering) this.startMetering().catch(() => {})
+	}
+
+	/** Metering stops at the end of the current round once no level feedback is left */
+	unsubscribeMetering(feedbackId: string): void {
+		this.#meterSubscriptions.delete(feedbackId)
+	}
+
+	#stopMetering(): void {
+		if (this.#meterTimer) clearTimeout(this.#meterTimer)
+		this.#metering = false
+		this.#meterSubscriptions.clear()
+	}
+
 	async startMetering(): Promise<void> {
 		if (this.#meterTimer) clearTimeout(this.#meterTimer)
-		if (this.#controller.signal.aborted || this.#config.model !== 'TX2N') return
+		if (this.#controller.signal.aborted || this.#config.model !== 'TX2N' || this.#meterSubscriptions.size === 0) {
+			this.#metering = false
+			return
+		}
+		this.#metering = true
 		const device = this.device
 		try {
 			const outputLevelQueries: Promise<{ stream: number; output: 'L' | 'R'; level: number }>[] = []
@@ -337,7 +380,7 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 					device.audioStreams[response.stream].outputs[response.output] = response.level
 				}
 			})
-			this.checkFeedbacks('outputLevel', 'levelMeterAudioStreamOutput')
+			this.checkFeedbacks(FeedbackId.OutputLevel, FeedbackId.LevelMeterAudioStreamOutput)
 		} catch (err) {
 			this.#statusManager.updateStatus(InstanceStatus.UnknownError)
 			if (typeof err == 'string') this.log('error', `Error during meter polling ${err}`)
@@ -362,6 +405,10 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		UpdateFeedbacks(this, this.#config.model)
 	}
 
+	updateCompositeElements(): void {
+		UpdateCompositeElements(this, this.#config.model)
+	}
+
 	updatePresets(): void {
 		UpdatePresets(this, this.#config.model)
 	}
@@ -370,5 +417,3 @@ export class ModuleInstance extends InstanceBase<ModuleConfig> {
 		UpdateVariableDefinitions(this, this.#config.model)
 	}
 }
-
-runEntrypoint(ModuleInstance, UpgradeScripts)

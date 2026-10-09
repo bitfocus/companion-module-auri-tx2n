@@ -1,9 +1,11 @@
-import { CompanionVariableDefinition } from '@companion-module/base'
-import type { ModuleInstance } from './main.js'
+import type { CompanionVariableDefinitions } from '@companion-module/base'
+import type ModuleInstance from './main.js'
 import type { Model } from './config.js'
 
+export type VariablesSchema = Record<string, never>
+
 export function UpdateVariableDefinitions(self: ModuleInstance, model: Model): void {
-	const variables: CompanionVariableDefinition[] = []
+	const variables: CompanionVariableDefinitions<VariablesSchema> = {}
 	switch (model) {
 		case 'D4':
 			break

@@ -1,7 +1,14 @@
-import { Regex, type SomeCompanionConfigField } from '@companion-module/base'
+import { Regex, type DropdownChoice, type SomeCompanionConfigField } from '@companion-module/base'
 
 export type Model = 'TX2N' | 'D4'
-export interface ModuleConfig {
+
+const MODEL_CHOICES = [
+	{ id: 'TX2N', label: 'TX2N / TX2N-D' },
+	{ id: 'D4', label: 'D4 / D16' },
+] as const satisfies DropdownChoice<Model>[]
+
+// A type alias, not an interface: InstanceTypes requires config to satisfy JsonObject, and interfaces don't
+export type ModuleConfig = {
 	host: string
 	port: number
 	model: Model
@@ -32,11 +39,8 @@ export function GetConfigFields(): SomeCompanionConfigField[] {
 			id: 'model',
 			label: 'Model',
 			width: 8,
-			default: 'TX2N',
-			choices: [
-				{ id: 'TX2N', label: 'TX2N / TX2N-D' },
-				{ id: 'D4', label: 'D4 / D16' },
-			],
+			default: MODEL_CHOICES[0].id,
+			choices: MODEL_CHOICES,
 		},
 		{
 			type: 'number',
