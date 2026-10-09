@@ -19,6 +19,7 @@ import * as Opts from '../options.js'
 import type ModuleInstance from '../main.js'
 import type { Model } from '../config.js'
 import type { DeviceState } from '../api.js'
+import { evaluate, gaugeBounds, num, type Bounds, type Options } from './graphics.js'
 
 /**
  * The deprecated Output Level Meter advanced feedback is the reference throughout: each test draws it at 72 px and
@@ -27,24 +28,7 @@ import type { DeviceState } from '../api.js'
 const ICON = 72
 const pct = (px: number) => (px / ICON) * 100
 
-type Options = Record<string, unknown>
-type Bounds = { x: number; y: number; width: number; height: number }
 type Layout = { position: BarPosition; padding: number; offset: number; width: number; min: number }
-
-/**
- * Evaluates an element property as Companion would. The expressions used (option references, ternaries,
- * comparisons, arithmetic) are also valid JavaScript, so this substitutes the options and lets JS run them.
- */
-function evaluate(property: unknown, options: Options): unknown {
-	if (typeof property !== 'object' || property === null || !('isExpression' in property)) return property
-	const { isExpression, value } = property as { isExpression: boolean; value: unknown }
-	if (!isExpression) return value
-	const source = String(value).replace(/\$\(options:(\w+)\)/g, (_, key: string) => JSON.stringify(options[key]))
-	// eslint-disable-next-line @typescript-eslint/no-implied-eval
-	return new Function(`return (${source})`)() as unknown
-}
-
-const num = (property: unknown, options: Options): number => Number(evaluate(property, options))
 
 function composites(model: Model) {
 	const setCompositeElementDefinitions =
@@ -72,13 +56,9 @@ const compositeOptions = (layout: Layout, level = -200): Options => ({
 })
 
 /** The gauge's bounds in px on a 72 px button, placed over the whole button */
-function gaugeBounds(gauge: ButtonGraphicsGaugeElement, options: Options): Bounds {
-	return {
-		x: (num(gauge.x, options) / 100) * ICON,
-		y: (num(gauge.y, options) / 100) * ICON,
-		width: (num(gauge.width, options) / 100) * ICON,
-		height: (num(gauge.height, options) / 100) * ICON,
-	}
+function gaugePx(gauge: ButtonGraphicsGaugeElement, options: Options): Bounds {
+	const { x, y, width, height } = gaugeBounds(gauge, options)
+	return { x: (x / 100) * ICON, y: (y / 100) * ICON, width: (width / 100) * ICON, height: (height / 100) * ICON }
 }
 
 /** Draws the advanced feedback at 72 px, for the left channel of stream 1 at the given level */
@@ -157,7 +137,7 @@ describe('Level Meter composite', () => {
 		]),
 	)('draws its bar where the advanced feedback does: $position, $padding/$offset/$width px', async (layout) => {
 		const drawn = drawnBounds(await oldImage(layout, -200))
-		const bounds = gaugeBounds(gauge, compositeOptions(layout))
+		const bounds = gaugePx(gauge, compositeOptions(layout))
 
 		expect(bounds.x).toBeCloseTo(drawn.x)
 		expect(bounds.y).toBeCloseTo(drawn.y)

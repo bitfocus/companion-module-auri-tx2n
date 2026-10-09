@@ -64,8 +64,9 @@ showing an output meter, is in use.
 
 #### TX2N
 
-- Output Meters: Stream 1 and Stream 2 Output Meter. A layered button with the stream's left and right output levels
-  as meters up its left and right edges.
+- Output Meters: a layered button per stream showing its left and right output levels as meters, in two sets
+  - Vertical: the left meter up the left edge, the right meter up the right edge
+  - Horizontal: both meters along the bottom edge.
 
 ### Composite Elements
 
